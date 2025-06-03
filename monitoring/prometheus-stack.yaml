@@ -1,0 +1,172 @@
+version: '3.8'
+
+volumes:
+  prometheus_data:
+  grafana-data:
+  alertmanager_data:
+
+configs:
+  prometheus_config:
+    external: true
+
+networks:
+  private-network1:
+    external: true
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.41.0
+    user: root
+    volumes:
+      - prometheus_data:/prometheus
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /home/ubuntu/docker/monitoring/prometheus/conf:/etc/prometheus/
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - private-network1     
+    deploy:
+      resources:
+        limits:
+          cpus: '2.00'
+          memory: 1024M
+        reservations:
+          cpus: '0.200'
+          memory: 512M
+      placement:
+        constraints:
+          - node.role==manager
+          - node.hostname==manager
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.monitoring-prometheus.rule=Host(`prometheus.projeto.local`)
+        - traefik.http.routers.monitoring-prometheus.entrypoints=web
+        - traefik.http.services.monitoring-prometheus.loadbalancer.server.port=9090
+        - traefik.http.routers.monitoring-prometheus.service=monitoring-prometheus
+        - prometheus.port=9090
+        - metrics_group=monitoring
+        
+      restart_policy:
+        condition: on-failure
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command: 
+      - '--path.procfs=/host/proc' 
+      - '--path.sysfs=/host/sys'
+      - --collector.filesystem.ignored-mount-points
+      - "^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)"
+    networks:
+      - private-network1
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+      restart_policy:
+        condition: on-failure
+      labels:
+        - prometheus.port=9100
+        - metrics_group=monitoring
+        
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    command: -docker_only
+    networks:
+      - private-network1
+    deploy:
+      mode: global
+      resources:
+        limits:
+          memory: 1024M
+        reservations:
+          memory: 512M
+      labels:
+        - prometheus.port=8080
+        - metrics_group=monitoring
+        
+      restart_policy:
+        condition: on-failure
+
+  grafana:
+    image: grafana/grafana-oss:11.4.0-ubuntu
+    depends_on:
+      - prometheus
+    networks:
+      private-network1:
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://grafana.projeto.local
+      - GF_SERVER_DOMAIN=grafana.projeto.local
+      - GF_SERVER_ENABLE_GZIP=true
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,redis-datasource
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - /home/ubuntu/docker/monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - /home/ubuntu/docker/monitoring/grafana/dashboards:/etc/grafana/dashboards
+    deploy:
+      placement:
+        constraints:
+          - node.role==manager
+          - node.hostname==manager
+      resources:
+        limits:
+          memory: 1024M
+          cpus: '0.400'
+        reservations:
+          memory: 100M
+          cpus: '0.20'
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.monitoring-grafana-http.rule=Host(`grafana.projeto.local`) && PathPrefix(`/`)
+        - traefik.http.routers.monitoring-grafana-http.entrypoints=web
+        - traefik.http.services.monitoring-grafana.loadbalancer.server.port=3000
+        - prometheus.port=3000
+        - metrics_group=monitoring
+        
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    user: root
+    ports:
+      - 9093:9093
+    volumes:
+      - alertmanager_data:/alertmanager
+      - /home/ubuntu/docker/monitoring/alertmanager/:/etc/alertmanager/
+    networks:
+      - private-network1
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
+    deploy:
+      placement:
+        constraints:
+          - node.role==manager
+          - node.hostname==manager
+      resources:
+        limits:
+          cpus: '0.500'
+          memory: 1024M
+        reservations:
+          cpus: '0.200'
+          memory: 512M
+      restart_policy:
+        condition: on-failure    

@@ -1,0 +1,278 @@
+
+groups:
+- name: swarm_nodes
+  rules:
+  # Alertas básicos de disponibilidade
+  - alert: SwarmNodeDown
+    expr: up{job=~"monitoring_node-exporter"} == 0
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Node {{ $labels.instance }} está offline"
+      description: "O node {{ $labels.instance }} está inacessível por mais de 2 minutos"
+
+  # Alertas de CPU
+  - alert: SwarmNodeHighLoad
+    expr: node_load1{job="monitoring_node-exporter"} > 5
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Alta carga no node {{ $labels.instance }}"
+      description: "Node {{ $labels.instance }} está com carga alta (LA1: {{ $value }})"
+
+  - alert: SwarmNodeCPUHighUsage
+    expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Alto uso de CPU em {{ $labels.instance }}"
+      description: "CPU está acima de 85% por 10 minutos (valor atual: {{ $value | printf \"%.2f\"}}%)"
+
+  - alert: SwarmNodeCPUIowait
+    expr: avg by (instance) (rate(node_cpu_seconds_total{mode="iowait"}[5m]) * 100) > 20
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Alto IOWait em {{ $labels.instance }}"
+      description: "CPU está gastando mais de 20% do tempo esperando por I/O ({{ $value | printf \"%.2f\"}}%)"
+
+  # Alertas de Memória
+  - alert: SwarmNodeHighMemoryUsage
+    expr: (1 - node_memory_MemAvailable_bytes{job="monitoring_node-exporter"} / node_memory_MemTotal_bytes{job="monitoring_node-exporter"}) * 100 > 90
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Uso de memória crítico em {{ $labels.instance }}"
+      description: "Node está usando mais de 90% da memória ({{ $value | printf \"%.2f\"}}%)"
+
+  - alert: SwarmNodeSwapUsage
+    expr: (1 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes)) * 100 > 80
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Alto uso de swap em {{ $labels.instance }}"
+      description: "Mais de 80% do swap está em uso ({{ $value | printf \"%.2f\"}}%)"
+
+  - alert: SwarmNodeHighMemoryPressure
+    expr: rate(node_vmstat_pgmajfault[5m]) > 1000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Alta pressão de memória em {{ $labels.instance }}"
+      description: "Sistema está com muitas faltas de página (page faults)"
+
+  # Alertas de Disco
+  - alert: SwarmNodeDiskSpaceCritical
+    expr: (node_filesystem_size_bytes{fstype=~"ext4|xfs"} - node_filesystem_free_bytes{fstype=~"ext4|xfs"}) / node_filesystem_size_bytes{fstype=~"ext4|xfs"} * 100 > 85
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Espaço em disco crítico em {{ $labels.instance }}"
+      description: "Partição {{ $labels.mountpoint }} está com mais de 85% de uso ({{ $value | printf \"%.2f\"}}%)"
+
+  - alert: SwarmNodeDiskReadErrors
+    expr: rate(node_disk_read_errors_total[5m]) > 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Erros de leitura de disco em {{ $labels.instance }}"
+      description: "Detectados erros de leitura no dispositivo {{ $labels.device }}"
+
+  - alert: SwarmNodeDiskWriteErrors
+    expr: rate(node_disk_write_errors_total[5m]) > 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Erros de escrita de disco em {{ $labels.instance }}"
+      description: "Detectados erros de escrita no dispositivo {{ $labels.device }}"
+
+  - alert: SwarmNodeInodesCritical
+    expr: node_filesystem_files_free{fstype=~"ext4|xfs"} / node_filesystem_files{fstype=~"ext4|xfs"} * 100 < 10
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Poucos inodes disponíveis em {{ $labels.instance }}"
+      description: "Partição {{ $labels.mountpoint }} tem menos de 10% de inodes livres"
+
+  # Alertas de Rede
+  - alert: SwarmNodeHighNetworkErrors
+    expr: rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m]) > 10
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Erros de rede em {{ $labels.instance }}"
+      description: "Alta taxa de erros de rede na interface {{ $labels.device }}"
+
+  - alert: SwarmNodeNetworkInterfaceSaturated
+    expr: rate(node_network_receive_bytes_total[5m]) * 8 > 7e8 or rate(node_network_transmit_bytes_total[5m]) * 8 > 7e8
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Interface de rede saturada em {{ $labels.instance }}"
+      description: "Interface {{ $labels.device }} está próxima da saturação (>700Mbps)"
+
+  - alert: SwarmNodeNetworkDropped
+    expr: rate(node_network_receive_drop_total[5m]) + rate(node_network_transmit_drop_total[5m]) > 5
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Pacotes descartados em {{ $labels.instance }}"
+      description: "Interface {{ $labels.device }} está descartando pacotes"
+
+  # Alertas de Sistema
+  - alert: SwarmNodeHighContextSwitching
+    expr: rate(node_context_switches_total[5m]) > 10000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Alta taxa de context switches em {{ $labels.instance }}"
+      description: "Sistema está realizando muitas trocas de contexto"
+
+  - alert: SwarmNodeTimeOutOfSync
+    expr: abs(node_timex_offset_seconds) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Tempo do sistema dessincronizado em {{ $labels.instance }}"
+      description: "O relógio do sistema está mais de 100ms fora de sincronia"
+
+  # Recording rules para análise histórica
+  - record: node:cpu_utilization:avg5m
+    expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+  - record: node:memory_utilization:percent
+    expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100
+
+  - record: node:disk_utilization:percent
+    expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100
+
+- name: swarm_containers
+  rules:
+  # Alertas baseados no cAdvisor
+  - alert: ContainerHighCPUUsage
+    expr: sum(rate(container_cpu_usage_seconds_total{job="prometheus-stack_cadvisor"}[5m])) by (container_label_com_docker_swarm_service_name) * 100 > 90
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Alto uso de CPU no serviço {{ $labels.container_label_com_docker_swarm_service_name }}"
+      description: "O serviço está usando mais de 90% de CPU ({{ $value | printf \"%.2f\"}}%)"
+
+  - alert: ContainerHighMemoryUsage
+    expr: container_memory_usage_bytes{job="prometheus-stack_cadvisor"} / container_spec_memory_limit_bytes{job="prometheus-stack_cadvisor"} * 100 > 85
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Alto uso de memória no container {{ $labels.name }}"
+      description: "Container está usando mais de 85% do limite de memória"
+
+- name: traefik_alerts
+  rules:
+  # Alertas para disponibilidade do Traefik
+  - alert: TraefikDown
+    expr: up{job="portainer_traefik"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Traefik está offline em {{ $labels.instance }}"
+      description: "O serviço Traefik está inacessível por mais de 1 minuto"
+
+  # Alerta para falhas de recarga de configuração
+  - alert: TraefikConfigReloadFailure
+    expr: traefik_config_reloads_failure_total > 0
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Falha na recarga de configuração do Traefik"
+      description: "Ocorreram {{ $value }} falhas na recarga da configuração do Traefik"
+
+  # Alerta para latência alta nas requisições
+  - alert: TraefikHighLatency
+    expr: histogram_quantile(0.95, sum(rate(traefik_entrypoint_request_duration_seconds_bucket{code!="404"}[5m])) by (le, entrypoint)) > 1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Alta latência no entrypoint {{ $labels.entrypoint }}"
+      description: "95% das requisições estão demorando mais de 1 segundo no entrypoint {{ $labels.entrypoint }}"
+
+  # Alerta para taxa de erros 4xx
+  - alert: TraefikHighHttp4xxErrorRate
+    expr: |
+      sum(rate(traefik_entrypoint_requests_total{code=~"4.."}[5m])) by (entrypoint) 
+      / 
+      sum(rate(traefik_entrypoint_requests_total[5m])) by (entrypoint) * 100 > 5
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Alta taxa de erros 4xx no entrypoint {{ $labels.entrypoint }}"
+      description: "Mais de 5% das requisições estão resultando em erros 4xx no entrypoint {{ $labels.entrypoint }}"
+
+  # Alerta para taxa de erros 5xx
+  - alert: TraefikHighHttp5xxErrorRate
+    expr: |
+      sum(rate(traefik_entrypoint_requests_total{code=~"5.."}[5m])) by (entrypoint)
+      /
+      sum(rate(traefik_entrypoint_requests_total[5m])) by (entrypoint) * 100 > 1
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Alta taxa de erros 5xx no entrypoint {{ $labels.entrypoint }}"
+      description: "Mais de 1% das requisições estão resultando em erros 5xx no entrypoint {{ $labels.entrypoint }}"
+
+  # Alerta para muitas conexões abertas
+  - alert: TraefikHighOpenConnections
+    expr: sum(traefik_entrypoint_open_connections) by (entrypoint) > 1000
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Muitas conexões abertas no entrypoint {{ $labels.entrypoint }}"
+      description: "O entrypoint {{ $labels.entrypoint }} tem mais de 1000 conexões abertas"
+
+  # Recording rules para métricas importantes
+  - record: traefik:request_duration_seconds:p95
+    expr: histogram_quantile(0.95, sum(rate(traefik_entrypoint_request_duration_seconds_bucket[5m])) by (le, entrypoint))
+
+  - record: traefik:request_rate:5m
+    expr: sum(rate(traefik_entrypoint_requests_total[5m])) by (entrypoint, code)
+
+- name: swarm_services
+  rules:
+  # Recording rules para métricas de serviço
+  - record: swarm_service:container_memory_usage:avg
+    expr: avg(container_memory_usage_bytes{job="prometheus-stack_cadvisor"}) by (container_label_com_docker_swarm_service_name)
+
+  - record: swarm_service:container_cpu_usage:avg
+    expr: avg(rate(container_cpu_usage_seconds_total{job="prometheus-stack_cadvisor"}[5m])) by (container_label_com_docker_swarm_service_name)
+
+  # Alerta para serviços sem réplicas suficientes
+  - alert: SwarmServiceNoReplicas
+    expr: docker_service_running_replicas < docker_service_desired_replicas
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Serviço {{ $labels.service_name }} com réplicas insuficientes"
+      description: "O serviço tem menos réplicas rodando ({{ $value }}) do que o desejado" 
